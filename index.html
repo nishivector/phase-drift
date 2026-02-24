@@ -1,0 +1,2051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Phase Drift</title>
+<script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/dist/Tone.js"></script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/" } }
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0A0F1E; overflow: hidden; font-family: 'Courier New', monospace; }
+  canvas#gameCanvas {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    touch-action: none; display: block;
+  }
+  #uiCanvas {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    touch-action: none; pointer-events: none; display: block;
+  }
+  #startScreen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #0A0F1E;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    z-index: 100;
+    transition: opacity 0.6s ease;
+  }
+  #startScreen.hidden { opacity: 0; pointer-events: none; }
+  #titleSvg {
+    position: absolute;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+  }
+  #diamondSvg {
+    position: absolute;
+    top: calc(18% - 70px);
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  #borderSvgWrap {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 101;
+  }
+  #idleCanvas {
+    position: absolute;
+    bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; height: 60%;
+    pointer-events: none;
+  }
+  #startPrompt {
+    position: fixed;
+    top: 80%;
+    left: 0; width: 100%;
+    text-align: center;
+    color: rgba(255,255,255,0.5);
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    z-index: 102;
+    opacity: 0;
+    animation: promptAppear 0.5s ease forwards 1.5s, promptBlink 1.2s ease-in-out infinite 1.5s;
+  }
+  @keyframes promptAppear { from { opacity: 0; } to { opacity: 0.5; } }
+  @keyframes promptBlink {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.15; }
+  }
+  #gameOverScreen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(10,15,30,0.92);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 200;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.5s ease;
+    color: #fff;
+  }
+  #gameOverScreen.visible { opacity: 1; pointer-events: all; }
+  #gameOverScreen h2 { font-size: 36px; color: #FF3366; margin-bottom: 16px; letter-spacing: 0.1em; }
+  #gameOverScreen .score { font-size: 24px; color: #00E5FF; margin-bottom: 8px; }
+  #gameOverScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
+  #gameOverScreen button {
+    background: none; border: 2px solid #00E5FF; color: #00E5FF;
+    font-family: 'Courier New', monospace; font-size: 16px;
+    padding: 12px 32px; cursor: pointer; letter-spacing: 0.1em;
+    transition: background 0.2s, color 0.2s;
+  }
+  #gameOverScreen button:hover { background: #00E5FF; color: #0A0F1E; }
+  #winScreen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(10,15,30,0.92);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 200;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.5s ease;
+    color: #fff;
+  }
+  #winScreen.visible { opacity: 1; pointer-events: all; }
+  #winScreen h2 { font-size: 36px; color: #00E5FF; margin-bottom: 16px; letter-spacing: 0.1em; }
+  #winScreen .score { font-size: 24px; color: #fff; margin-bottom: 8px; }
+  #winScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
+  #winScreen button {
+    background: none; border: 2px solid #00E5FF; color: #00E5FF;
+    font-family: 'Courier New', monospace; font-size: 16px;
+    padding: 12px 32px; cursor: pointer; letter-spacing: 0.1em;
+    transition: background 0.2s, color 0.2s;
+  }
+  #winScreen button:hover { background: #00E5FF; color: #0A0F1E; }
+  #hud {
+    position: fixed; top: 16px; left: 16px;
+    color: rgba(255,255,255,0.6); font-size: 13px;
+    pointer-events: none; z-index: 50; line-height: 1.8;
+  }
+  #hud span { display: block; }
+  #hud .layer-a { color: #00E5FF; }
+  #hud .layer-b { color: #FF3366; }
+</style>
+</head>
+<body>
+
+<!-- START SCREEN -->
+<div id="startScreen">
+  <!-- SVG Option C: border -->
+  <div id="borderSvgWrap">
+    <svg id="borderSvg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" style="position:absolute;top:0;left:0;">
+      <rect id="borderRect" x="24" y="24" width="calc(100% - 48)" height="calc(100% - 48)" rx="2"
+        fill="none" stroke="#00E5FF" stroke-width="2" stroke-opacity="0.4"
+        stroke-dasharray="99999" stroke-dashoffset="99999" />
+    </svg>
+  </div>
+  <!-- SVG Option B: Diamond -->
+  <div id="diamondSvg">
+    <svg xmlns="http://www.w3.org/2000/svg" width="80" height="52" viewBox="0 0 80 52">
+      <defs>
+        <filter id="silhouetteGlow" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+        <style>
+          .ghost { animation: breathe 2.4s ease-in-out infinite; }
+          @keyframes breathe { 0%, 100% { opacity: 0.6; } 50% { opacity: 1.0; } }
+        </style>
+      </defs>
+      <polygon class="ghost" points="40,4 68,20 40,36 12,20" fill="#00E5FF" filter="url(#silhouetteGlow)" />
+    </svg>
+  </div>
+  <!-- SVG Option A: Title -->
+  <div id="titleSvg">
+    <svg xmlns="http://www.w3.org/2000/svg" width="420" height="80" viewBox="0 0 420 80">
+      <defs>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+        <style>
+          .title {
+            font-family: 'Courier New', monospace;
+            font-size: 48px;
+            font-weight: 700;
+            fill: #00E5FF;
+            letter-spacing: 0.15em;
+            filter: url(#glow);
+            animation: fadeIn 1.2s ease-out forwards;
+            opacity: 0;
+          }
+          @keyframes fadeIn {
+            0% { opacity: 0; transform: translateY(8px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+        </style>
+      </defs>
+      <text class="title" x="50%" y="58" text-anchor="middle">PHASE DRIFT</text>
+    </svg>
+    <div style="color:#FF3366;font-size:12px;letter-spacing:0.15em;opacity:0.7;margin-top:8px;text-align:center;">
+      You can only see half the world, but both halves will kill you.
+    </div>
+  </div>
+  <!-- Idle canvas -->
+  <canvas id="idleCanvas"></canvas>
+  <p id="startPrompt">Press Space or tap to begin</p>
+</div>
+
+<!-- GAME CANVAS -->
+<canvas id="gameCanvas"></canvas>
+<canvas id="uiCanvas"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <span id="hudLevel">LEVEL 1</span>
+  <span id="hudLayer" class="layer-a">LAYER A</span>
+  <span id="hudScore">SCORE 0</span>
+  <span id="hudHi">BEST 0</span>
+</div>
+
+<!-- GAME OVER -->
+<div id="gameOverScreen">
+  <h2>SIGNAL LOST</h2>
+  <div class="score" id="goScore"></div>
+  <div class="hi" id="goHi"></div>
+  <button id="goRestart">RESTART</button>
+</div>
+
+<!-- WIN -->
+<div id="winScreen">
+  <h2>TRANSIT COMPLETE</h2>
+  <div class="score" id="winScore"></div>
+  <div class="hi" id="winHi"></div>
+  <button id="winRestart">PLAY AGAIN</button>
+</div>
+
+<!-- GitHub -->
+<a href="https://github.com/nishivector/phase-drift" target="_blank" style="position:fixed;bottom:16px;right:16px;color:rgba(255,255,255,0.4);font-size:12px;text-decoration:none;font-family:monospace;z-index:1000;">GitHub ↗</a>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const SCORE_KEY = 'phase-drift-highscore';
+const COL_A = new THREE.Color(0x00E5FF);
+const COL_B = new THREE.Color(0xFF3366);
+const COL_W = new THREE.Color(0xFFFFFF);
+const COL_BG = new THREE.Color(0x0A0F1E);
+const TILE_W = 48, TILE_H = 24;
+const HALF_W = TILE_W / 2, HALF_H = TILE_H / 2;
+const ISO_X = 24, ISO_Y = 12; // per-unit screen deltas
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let gameState = 'start'; // 'start' | 'playing' | 'dead' | 'win'
+let hasEverActed = false;
+let currentLevel = 0;
+let currentLayer = 0; // 0=A, 1=B
+let totalScore = 0;
+let levelScore = 0;
+let deaths = 0;
+let levelTimer = 0;
+let refractoryTimer = 0;
+let screenShakeFrames = 0;
+let screenShakeAmt = 0;
+let dualLayerVisible = false;
+let hasFlashedL4 = false;
+let dualLayerTimer = 0;
+let deathTimer = 0;
+let isDeathAnim = false;
+
+// Player
+const player = { x: 0, y: 0, layer: 0, screenX: 0, screenY: 0, renderX: 0, renderY: 0 };
+let playerMoving = false;
+let playerPath = [];
+let playerMoveTimer = 0;
+let playerMoveDuration = 120;
+let playerFromX = 0, playerFromY = 0;
+let playerToX = 0, playerToY = 0;
+
+// Ghosts (death outlines)
+const ghosts = [];
+const particles = [];
+const rings = [];
+
+// Threats
+let threats = [];
+// Pursuer (L5)
+let pursuer = null;
+let pursuerShiftTimer = 3.0;
+let pursuerShiftInterval = 3.0;
+let pursuer30sTimer = 0;
+
+// Viewport
+let vpW = window.innerWidth, vpH = window.innerHeight;
+let viewCX = 0, viewCY = 0;
+let gridOffsetX = 0, gridOffsetY = 0;
+let gridSize = 8; // current level grid size
+let tileScale = 1.0;
+
+// HUD
+const hudLevel = document.getElementById('hudLevel');
+const hudLayer = document.getElementById('hudLayer');
+const hudScore = document.getElementById('hudScore');
+const hudHi = document.getElementById('hudHi');
+
+// Phase efficiency tracking
+let lastSwitchTime = 0;
+let switchSurvivedTimer = 0;
+let readingSwitchPending = false;
+
+// Wow moment
+let wowPulse = 0;
+
+// ─── LEVEL DATA ───────────────────────────────────────────────────────────────
+// Walls: Set of "x,y" strings per layer. Wall at a tile means you can't enter it.
+// We'll define walls as an array of [x,y] for each layer.
+
+function makeWallSet(arr) {
+  const s = new Set();
+  arr.forEach(([x,y]) => s.add(`${x},${y}`));
+  return s;
+}
+function hasWall(wallSet, x, y) { return wallSet.has(`${x},${y}`); }
+
+// Isometric-style maze generation helpers
+// For each level, walls block movement into that tile in that layer.
+
+const LEVELS = [
+  // Level 1: 8×8, Start(0,7), Exit(7,0)
+  {
+    name: 'First Contact',
+    size: 8,
+    start: [0,7],
+    exit: [7,0],
+    tileMoveMs: 120,
+    // Layer A has walls blocking (3,3),(4,3),(5,3) - must go through B there
+    wallsA: makeWallSet([[3,3],[4,3],[5,3],[1,1],[1,2],[2,2],[6,1],[6,2],[6,5],[6,6],[7,5],[7,6],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6]]),
+    wallsB: makeWallSet([[1,1],[1,2],[2,2],[6,1],[6,2],[6,5],[6,6],[7,5],[7,6],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6]]),
+    threats: [
+      { type:'stationary', layer:1, x:4, y:3, waypoints:null, speed:900, pauseMs:0 }
+    ]
+  },
+  // Level 2: 10×10, Start(0,9), Exit(9,0)
+  {
+    name: 'Split Traffic',
+    size: 10,
+    start: [0,9],
+    exit: [9,0],
+    tileMoveMs: 120,
+    wallsA: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],
+      [1,1],[1,2],[1,3],[1,7],[1,8],
+      [2,7],[2,8],
+      [3,1],[3,2],[3,3],[3,7],[3,8],
+      [4,1],[4,5],[4,6],[4,7],[4,8],
+      [5,1],[5,6],[5,7],[5,8],
+      [6,1],[6,8],
+      [7,1],[7,2],[7,3],[7,8],
+      [8,1],[8,2],[8,3],[8,7],[8,8],[8,9],
+      [9,1],[9,2],[9,3],[9,7],[9,8],[9,9]
+    ]),
+    wallsB: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],
+      [1,1],[1,2],[1,3],[1,7],[1,8],
+      [2,7],[2,8],
+      [3,1],[3,2],[3,3],[3,7],[3,8],
+      [4,1],[4,6],[4,7],[4,8],
+      [5,1],[5,7],[5,8],
+      [6,1],[6,8],
+      [7,1],[7,2],[7,3],[7,8],
+      [8,1],[8,2],[8,3],[8,7],[8,8],[8,9],
+      [9,1],[9,2],[9,3],[9,7],[9,8],[9,9]
+    ]),
+    threats: [
+      { type:'patrol', layer:1, x:2, y:1, waypoints:[[2,1],[2,5],[2,1]], speed:400, pauseMs:200 },
+      { type:'patrol', layer:1, x:6, y:2, waypoints:[[6,2],[6,7],[6,2]], speed:400, pauseMs:200 },
+      { type:'stationary', layer:0, x:5, y:5, waypoints:null, speed:400, pauseMs:0 }
+    ]
+  },
+  // Level 3: 12×12, Start(0,11), Exit(11,0)
+  {
+    name: 'Dual Occupation',
+    size: 12,
+    start: [0,11],
+    exit: [11,0],
+    tileMoveMs: 120,
+    wallsA: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],
+      [1,1],[1,2],[1,4],[1,5],[1,9],[1,10],
+      [2,1],[2,2],[2,4],[2,5],[2,9],[2,10],
+      [3,4],[3,5],[3,9],[3,10],
+      [4,1],[4,2],[4,9],[4,10],
+      [5,1],[5,2],[5,6],[5,7],[5,8],[5,9],[5,10],
+      [6,1],[6,2],[6,8],[6,9],[6,10],
+      [7,1],[7,2],[7,8],[7,9],[7,10],
+      [8,1],[8,2],[8,9],[8,10],
+      [9,1],[9,2],[9,7],[9,8],[9,9],[9,10],
+      [10,1],[10,7],[10,8],[10,9],[10,10],
+      [11,1],[11,2],[11,8],[11,9],[11,10]
+    ]),
+    wallsB: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],
+      [1,1],[1,2],[1,9],[1,10],
+      [2,1],[2,2],[2,9],[2,10],
+      [3,9],[3,10],
+      [4,1],[4,2],[4,9],[4,10],
+      [5,1],[5,2],[5,9],[5,10],
+      [6,1],[6,2],[6,9],[6,10],
+      [7,1],[7,2],[7,9],[7,10],
+      [8,1],[8,2],[8,9],[8,10],
+      [9,1],[9,2],[9,9],[9,10],
+      [10,1],[10,9],[10,10],
+      [11,1],[11,2],[11,9],[11,10]
+    ]),
+    threats: [
+      { type:'patrol', layer:1, x:1, y:3, waypoints:[[1,3],[8,3],[1,3]], speed:320, pauseMs:200 },
+      { type:'patrol', layer:1, x:5, y:1, waypoints:[[5,1],[5,9],[5,1]], speed:320, pauseMs:200 },
+      { type:'stationary', layer:1, x:9, y:6, waypoints:null, speed:320, pauseMs:0 },
+      { type:'patrol', layer:0, x:3, y:5, waypoints:[[3,5],[3,10],[3,5]], speed:320, pauseMs:200 },
+      { type:'patrol', layer:0, x:7, y:4, waypoints:[[7,4],[10,4],[7,4]], speed:320, pauseMs:200 }
+    ]
+  },
+  // Level 4: 14×14, Start(0,13), Exit(13,0)
+  {
+    name: 'Membrane Collapse',
+    size: 14,
+    start: [0,13],
+    exit: [13,0],
+    tileMoveMs: 120,
+    wallsA: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],[0,11],[0,12],
+      [1,1],[1,2],[1,3],[1,10],[1,11],[1,12],
+      [2,1],[2,2],[2,3],[2,10],[2,11],[2,12],
+      [3,1],[3,2],[3,10],[3,11],[3,12],
+      [4,1],[4,2],[4,5],[4,6],[4,7],[4,10],[4,11],[4,12],
+      [5,1],[5,2],[5,6],[5,7],[5,10],[5,11],[5,12],
+      [6,1],[6,2],[6,10],[6,11],[6,12],
+      [7,5],[7,6],[7,7],[7,8],[7,10],[7,11],[7,12],
+      [8,5],[8,6],[8,10],[8,11],[8,12],
+      [9,1],[9,2],[9,10],[9,11],[9,12],
+      [10,1],[10,2],[10,10],[10,11],[10,12],
+      [11,1],[11,2],[11,3],[11,10],[11,11],[11,12],
+      [12,1],[12,2],[12,3],[12,10],[12,11],[12,12],
+      [13,1],[13,2],[13,3],[13,10],[13,11],[13,12]
+    ]),
+    wallsB: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],[0,11],[0,12],
+      [1,1],[1,2],[1,3],[1,10],[1,11],[1,12],
+      [2,3],[2,4],[2,10],[2,11],[2,12],
+      [3,3],[3,4],[3,10],[3,11],[3,12],
+      [4,3],[4,4],[4,10],[4,11],[4,12],
+      [5,3],[5,4],[5,7],[5,8],[5,10],[5,11],[5,12],
+      [6,3],[6,7],[6,8],[6,10],[6,11],[6,12],
+      [7,3],[7,10],[7,11],[7,12],
+      [8,3],[8,10],[8,11],[8,12],
+      [9,3],[9,10],[9,11],[9,12],
+      [10,3],[10,10],[10,11],[10,12],
+      [11,3],[11,10],[11,11],[11,12],
+      [12,3],[12,10],[12,11],[12,12],
+      [13,10],[13,11],[13,12]
+    ]),
+    threats: [
+      { type:'patrol', layer:1, x:2, y:2, waypoints:[[2,2],[10,2],[10,8],[2,8],[2,2]], speed:280, pauseMs:200 },
+      { type:'patrol', layer:1, x:6, y:3, waypoints:[[6,3],[6,10],[6,3]], speed:280, pauseMs:200 },
+      { type:'patrol', layer:1, x:10, y:5, waypoints:[[10,5],[3,5],[3,11],[10,11],[10,5]], speed:280, pauseMs:200 },
+      { type:'patrol', layer:0, x:1, y:6, waypoints:[[1,6],[12,6],[1,6]], speed:280, pauseMs:200 },
+      { type:'patrol', layer:0, x:5, y:2, waypoints:[[5,2],[5,12],[5,2]], speed:280, pauseMs:200 },
+      { type:'patrol', layer:0, x:9, y:1, waypoints:[[9,1],[9,13],[9,1]], speed:280, pauseMs:200 }
+    ],
+    wowMoment: true
+  },
+  // Level 5: 12×12, Start(0,11), Exit(11,0)
+  {
+    name: 'Two Clocks',
+    size: 12,
+    start: [0,11],
+    exit: [11,0],
+    tileMoveMs: 120,
+    wallsA: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],
+      [1,1],[1,2],[1,9],[1,10],
+      [2,1],[2,2],[2,9],[2,10],
+      [3,1],[3,2],[3,9],[3,10],
+      [4,1],[4,2],[4,9],[4,10],
+      [5,1],[5,2],[5,9],[5,10],
+      [6,1],[6,2],[6,9],[6,10],
+      [7,1],[7,2],[7,9],[7,10],
+      [8,1],[8,2],[8,4],[8,5],[8,9],[8,10],
+      [9,1],[9,2],[9,4],[9,5],[9,9],[9,10],
+      [10,1],[10,9],[10,10],
+      [11,1],[11,2],[11,9],[11,10]
+    ]),
+    wallsB: makeWallSet([
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],
+      [1,1],[1,2],[1,9],[1,10],
+      [2,1],[2,2],[2,4],[2,5],[2,9],[2,10],
+      [3,1],[3,2],[3,4],[3,5],[3,9],[3,10],
+      [4,1],[4,2],[4,7],[4,8],[4,9],[4,10],
+      [5,1],[5,2],[5,7],[5,8],[5,9],[5,10],
+      [6,1],[6,2],[6,9],[6,10],
+      [7,1],[7,2],[7,9],[7,10],
+      [8,1],[8,2],[8,9],[8,10],
+      [9,1],[9,2],[9,9],[9,10],
+      [10,1],[10,9],[10,10],
+      [11,1],[11,2],[11,9],[11,10]
+    ]),
+    threats: [
+      { type:'stationary', layer:1, x:5, y:3, waypoints:null, speed:260, pauseMs:0 },
+      { type:'patrol', layer:0, x:2, y:6, waypoints:[[2,6],[9,6],[2,6]], speed:260, pauseMs:200 },
+      { type:'stationary', layer:0, x:8, y:8, waypoints:null, speed:260, pauseMs:0 }
+    ],
+    hasPursuer: true
+  }
+];
+
+// ─── A* PATHFINDING ───────────────────────────────────────────────────────────
+function aStar(sx, sy, ex, ey, wallSet, size) {
+  if (sx === ex && sy === ey) return [];
+  const key = (x,y) => `${x},${y}`;
+  const heur = (x,y) => Math.abs(x-ex)+Math.abs(y-ey);
+  const open = new Map();
+  const closed = new Set();
+  const came = new Map();
+  const g = new Map();
+  const f = new Map();
+  const start = key(sx,sy);
+  g.set(start, 0);
+  f.set(start, heur(sx,sy));
+  open.set(start, {x:sx, y:sy});
+  const DIRS = [[0,-1],[0,1],[-1,0],[1,0]];
+  while (open.size > 0) {
+    let bestKey = null, bestF = Infinity;
+    for (const [k] of open) {
+      const fv = f.get(k) ?? Infinity;
+      if (fv < bestF) { bestF = fv; bestKey = k; }
+    }
+    const cur = open.get(bestKey);
+    const ck = bestKey;
+    if (cur.x === ex && cur.y === ey) {
+      // Reconstruct
+      const path = [];
+      let k = ck;
+      while (came.has(k)) { const n = came.get(k); path.unshift(n); k = key(n.x,n.y); }
+      path.push({x:ex,y:ey});
+      return path;
+    }
+    open.delete(ck);
+    closed.add(ck);
+    for (const [dx,dy] of DIRS) {
+      const nx = cur.x+dx, ny = cur.y+dy;
+      if (nx<0||ny<0||nx>=size||ny>=size) continue;
+      if (hasWall(wallSet,nx,ny)) continue;
+      const nk = key(nx,ny);
+      if (closed.has(nk)) continue;
+      const ng = (g.get(ck) ?? Infinity) + 1;
+      if (!open.has(nk) || ng < (g.get(nk) ?? Infinity)) {
+        came.set(nk, {x:cur.x, y:cur.y});
+        g.set(nk, ng);
+        f.set(nk, ng + heur(nx,ny));
+        open.set(nk, {x:nx,y:ny});
+      }
+    }
+  }
+  return null; // no path
+}
+
+// ─── ISO PROJECTION ───────────────────────────────────────────────────────────
+function isoProject(gx, gy) {
+  const level = LEVELS[currentLevel];
+  const N = level.size;
+  const pad = 40;
+  // Compute the bounding box of the isometric grid
+  const cornerSX = [
+    isoRaw(0,0).sx, isoRaw(N-1,0).sx, isoRaw(0,N-1).sx, isoRaw(N-1,N-1).sx
+  ];
+  const cornerSY = [
+    isoRaw(0,0).sy, isoRaw(N-1,0).sy, isoRaw(0,N-1).sy, isoRaw(N-1,N-1).sy
+  ];
+  const minSX = Math.min(...cornerSX), maxSX = Math.max(...cornerSX);
+  const minSY = Math.min(...cornerSY), maxSY = Math.max(...cornerSY);
+  const gridW = maxSX - minSX + TILE_W;
+  const gridH = maxSY - minSY + TILE_H;
+  const scaleX = (vpW - pad*2) / gridW;
+  const scaleY = (vpH - pad*2) / gridH;
+  const scale = Math.min(scaleX, scaleY, 1.0);
+  const offX = vpW/2 - (maxSX+minSX)/2*scale - TILE_W/2*scale;
+  const offY = vpH/2 - (maxSY+minSY)/2*scale - TILE_H/2*scale;
+  const raw = isoRaw(gx, gy);
+  return {
+    sx: raw.sx * scale + offX,
+    sy: raw.sy * scale + offY,
+    scale
+  };
+}
+
+function isoRaw(gx, gy) {
+  return { sx: (gx - gy) * ISO_X, sy: (gx + gy) * ISO_Y };
+}
+
+// Cache for current viewport transform
+let cachedScale = 1;
+let cachedOffX = 0;
+let cachedOffY = 0;
+
+function recomputeViewport() {
+  const level = LEVELS[currentLevel];
+  const N = level.size;
+  const pad = 40;
+  let minSX = Infinity, maxSX = -Infinity, minSY = Infinity, maxSY = -Infinity;
+  for (let x=0;x<N;x++) for (let y=0;y<N;y++) {
+    const r = isoRaw(x,y);
+    if (r.sx < minSX) minSX = r.sx;
+    if (r.sx > maxSX) maxSX = r.sx;
+    if (r.sy < minSY) minSY = r.sy;
+    if (r.sy > maxSY) maxSY = r.sy;
+  }
+  const gridW = maxSX - minSX + TILE_W;
+  const gridH = maxSY - minSY + TILE_H;
+  const scaleX = (vpW - pad*2) / gridW;
+  const scaleY = (vpH - pad*2) / gridH;
+  const scale = Math.min(scaleX, scaleY, 1.0);
+  cachedScale = scale;
+  cachedOffX = vpW/2 - (maxSX+minSX)/2*scale - TILE_W/2*scale;
+  cachedOffY = vpH/2 - (maxSY+minSY)/2*scale - TILE_H/2*scale;
+}
+
+function toScreen(gx, gy) {
+  const r = isoRaw(gx, gy);
+  return { sx: r.sx * cachedScale + cachedOffX, sy: r.sy * cachedScale + cachedOffY };
+}
+
+function fromScreen(sx, sy) {
+  // Inverse isometric (approximate — find closest tile)
+  const N = LEVELS[currentLevel].size;
+  let bestDist = Infinity, bx = 0, by = 0;
+  for (let x=0;x<N;x++) for (let y=0;y<N;y++) {
+    const s = toScreen(x,y);
+    const cx = s.sx + TILE_W/2*cachedScale;
+    const cy = s.sy + TILE_H/2*cachedScale;
+    const d = (sx-cx)**2 + (sy-cy)**2;
+    if (d < bestDist) { bestDist = d; bx = x; by = y; }
+  }
+  return { x: bx, y: by };
+}
+
+// ─── THREE.JS SETUP ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(COL_BG, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(COL_BG);
+
+const camera = new THREE.OrthographicCamera(
+  -vpW/2, vpW/2, vpH/2, -vpH/2, -1000, 1000
+);
+camera.position.set(0, 0, 100);
+camera.lookAt(0, 0, 0);
+
+// uiCanvas for 2D game rendering — prefer DOM element, fall back to createElement
+let uiCanvas;
+{
+  const domEl = document.getElementById('uiCanvas');
+  uiCanvas = (domEl && typeof domEl.getContext === 'function') ? domEl : document.createElement('canvas');
+}
+uiCanvas.width = vpW; uiCanvas.height = vpH;
+const uiCtx = uiCanvas.getContext('2d');
+const canvasTexture = new THREE.CanvasTexture(uiCanvas);
+
+const planeMat = new THREE.MeshBasicMaterial({ map: canvasTexture, transparent: true });
+const planeGeo = new THREE.PlaneGeometry(vpW, vpH);
+const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+scene.add(planeMesh);
+
+// Bloom objects for emissive elements
+const bloomGroup = new THREE.Group();
+scene.add(bloomGroup);
+
+// Bloom objects: sprites for player, threats, exit
+const bloomMaterials = [];
+
+function makeBloomSprite(color, size) {
+  const mat = new THREE.SpriteMaterial({ color, transparent: true, opacity: 1.0 });
+  bloomMaterials.push(mat);
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(size, size/2, 1);
+  bloomGroup.add(sprite);
+  return sprite;
+}
+
+const playerBloom = makeBloomSprite(0xFFFFFF, 40);
+const exitBloom = makeBloomSprite(0xFFFFFF, 40);
+let threatBlooms = [];
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(vpW, vpH),
+  0.6, // strength
+  0.4, // radius
+  0.75 // threshold
+);
+composer.addPass(bloomPass);
+
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+let audioReady = false;
+let musicALooper = null, musicBLooper = null;
+let musicAGain = null, musicBGain = null;
+let heartbeatSynth = null;
+let heartbeatLoop = null;
+let moveSynth = null;
+let phaseSwitchSynth = null;
+let phaseSwitchReverb = null;
+let deathNoise = null, deathFilter = null, deathGlideSynth = null;
+let exitSynth = null, exitReverb = null;
+let droneSynth = null;
+
+async function initAudio() {
+  if (audioReady) return;
+  await Tone.start();
+  audioReady = true;
+
+  // Music Layer A: clean cold arpeggios
+  musicAGain = new Tone.Gain(0.35).toDestination();
+  const noteA = ['C5','E5','G5','B4','A4','G5','F#5','E5'];
+  let noteIdxA = 0;
+  const synthA = new Tone.Synth({ oscillator:{ type:'triangle' }, envelope:{ attack:0.01, decay:0.15, sustain:0.2, release:0.3 } });
+  synthA.connect(musicAGain);
+  musicALooper = new Tone.Loop(time => {
+    synthA.triggerAttackRelease(noteA[noteIdxA % noteA.length], '16n', time, 0.3);
+    noteIdxA++;
+  }, '8n');
+
+  // Music Layer B: detuned warm
+  musicBGain = new Tone.Gain(0.07).toDestination();
+  const noteB = ['A4','C5','E5','G#4','F#4','A4','D5','C5'];
+  let noteIdxB = 0;
+  const synthB = new Tone.Synth({ oscillator:{ type:'sawtooth' }, envelope:{ attack:0.02, decay:0.2, sustain:0.15, release:0.4 }, detune: 12 });
+  synthB.connect(musicBGain);
+  musicBLooper = new Tone.Loop(time => {
+    synthB.triggerAttackRelease(noteB[noteIdxB % noteB.length], '8n', time, 0.25);
+    noteIdxB++;
+  }, '8n');
+
+  Tone.Transport.bpm.value = 116;
+  musicALooper.start(0);
+  musicBLooper.start('8n');
+  Tone.Transport.start();
+
+  // Heartbeat
+  heartbeatSynth = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:0.005, decay:0.1, sustain:0, release:0.05 } });
+  const hbGain = new Tone.Gain(0).toDestination();
+  heartbeatSynth.connect(hbGain);
+  heartbeatSynth._gainNode = hbGain;
+  heartbeatLoop = new Tone.Loop(time => {
+    heartbeatSynth.triggerAttackRelease(heartbeatSynth._freq || 40, '16n', time, heartbeatSynth._amp || 0);
+  }, '8n');
+  heartbeatLoop.start(0);
+
+  // Move synth
+  moveSynth = new Tone.Synth({ oscillator:{ type:'triangle' }, envelope:{ attack:0.001, decay:0.04, sustain:0, release:0.02 } });
+  moveSynth.toDestination();
+
+  // Phase switch synth + reverb
+  phaseSwitchReverb = new Tone.Reverb({ decay:0.3, wet:0.3 });
+  await phaseSwitchReverb.generate();
+  phaseSwitchSynth = new Tone.Synth({ oscillator:{ type:'triangle' }, envelope:{ attack:0.001, decay:0.08, sustain:0, release:0.22 } });
+  phaseSwitchSynth.connect(phaseSwitchReverb);
+  phaseSwitchReverb.toDestination();
+
+  // Death synth
+  deathFilter = new Tone.Filter({ frequency:3200, type:'lowpass' }).toDestination();
+  deathNoise = new Tone.NoiseSynth({ noise:{ type:'white' }, envelope:{ attack:0.001, decay:0.18, sustain:0, release:0 } });
+  deathNoise.connect(deathFilter);
+  deathGlideSynth = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:0, decay:0.25, sustain:0, release:0 }, portamento:0.15 });
+  deathGlideSynth.toDestination();
+
+  // Exit synth
+  const exitSynthReverb = new Tone.Reverb({ decay:2.5, wet:0.7 });
+  await exitSynthReverb.generate();
+  exitSynth = new Tone.PolySynth(Tone.Synth, { oscillator:{ type:'triangle' }, envelope:{ attack:0.01, decay:0.8, sustain:0.1, release:1.2 } });
+  exitSynth.connect(exitSynthReverb);
+  exitSynthReverb.toDestination();
+
+  // Drone for wow moment
+  droneSynth = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:0.3, decay:0, sustain:1, release:0.3 } });
+  droneSynth.toDestination();
+}
+
+function playMoveSound() {
+  if (!audioReady || !moveSynth) return;
+  const freq = currentLayer === 0 ? 659.25 : 622.25;
+  try { moveSynth.triggerAttackRelease(freq, '32n', undefined, 0.15); } catch(e) {}
+}
+
+function playPhaseSwitch(unsafe) {
+  if (!audioReady || !phaseSwitchSynth) return;
+  try {
+    if (unsafe) {
+      phaseSwitchReverb.decay = 0.6;
+      phaseSwitchReverb.wet.value = 0.55;
+    } else {
+      phaseSwitchReverb.decay = 0.3;
+      phaseSwitchReverb.wet.value = 0.3;
+    }
+    phaseSwitchSynth.triggerAttackRelease('C6', '8n', undefined, 0.5);
+  } catch(e) {}
+}
+
+function playDeath() {
+  if (!audioReady) return;
+  try {
+    deathNoise.triggerAttackRelease('8n', undefined, 0.9);
+    deathGlideSynth.frequency.value = 784;
+    deathGlideSynth.triggerAttackRelease('G5', '4n', undefined, 0.6);
+    setTimeout(() => {
+      try { deathGlideSynth.frequency.linearRampTo(196, 0.15); } catch(e2) {}
+    }, 0);
+  } catch(e) {}
+}
+
+function playExit() {
+  if (!audioReady || !exitSynth) return;
+  try { exitSynth.triggerAttackRelease(['C5','E5','G5','B5'], '2n', undefined, 0.6); } catch(e) {}
+}
+
+function playDrone() {
+  if (!audioReady || !droneSynth) return;
+  try {
+    droneSynth.triggerAttackRelease(80, '2n', undefined, 0.4);
+  } catch(e) {}
+}
+
+function playPursuerShift() {
+  if (!audioReady || !phaseSwitchSynth) return;
+  try {
+    phaseSwitchSynth.triggerAttackRelease('C6', '8n', undefined, 0.2);
+  } catch(e) {}
+}
+
+function updateMusicLayers() {
+  if (!audioReady || !musicAGain || !musicBGain) return;
+  if (currentLayer === 0) {
+    musicAGain.gain.linearRampTo(0.35, 0.3);
+    musicBGain.gain.linearRampTo(0.07, 0.3);
+  } else {
+    musicAGain.gain.linearRampTo(0.07, 0.3);
+    musicBGain.gain.linearRampTo(0.35, 0.3);
+  }
+}
+
+// ─── LEVEL SETUP ──────────────────────────────────────────────────────────────
+function initLevel(levelIdx) {
+  currentLevel = levelIdx;
+  const level = LEVELS[levelIdx];
+  gridSize = level.size;
+  currentLayer = 0;
+  levelTimer = 0;
+  hasFlashedL4 = false;
+  dualLayerVisible = false;
+  dualLayerTimer = 0;
+  playerPath = [];
+  playerMoving = false;
+  refractoryTimer = 0;
+  switchSurvivedTimer = 0;
+  readingSwitchPending = false;
+  wowPulse = 0;
+  pursuer30sTimer = 0;
+
+  const [sx, sy] = level.start;
+  player.x = sx; player.y = sy; player.layer = 0;
+
+  // Init threats
+  threats = level.threats.map((td, i) => {
+    const t = {
+      type: td.type,
+      layer: td.layer,
+      x: td.x, y: td.y,
+      waypoints: td.waypoints ? td.waypoints.map(w => ({x:w[0], y:w[1]})) : null,
+      waypointIdx: 0,
+      speed: td.speed,
+      moveTimer: 0,
+      pauseTimer: 0,
+      paused: false,
+      renderX: 0, renderY: 0,
+      trailPositions: [],
+      bloom: null
+    };
+    t.renderX = t.x; t.renderY = t.y;
+    return t;
+  });
+
+  // Pursuer
+  if (level.hasPursuer) {
+    pursuer = {
+      type: 'pursuer',
+      layer: 0,
+      x: 11, y: 11,
+      path: [],
+      pathTimer: 0,
+      moveTimer: 0,
+      renderX: 11, renderY: 11,
+      shiftTimer: 3.0,
+      shiftInterval: 3.0,
+      bloom: null
+    };
+    pursuerShiftTimer = 3.0;
+    pursuerShiftInterval = 3.0;
+    pursuer30sTimer = 0;
+  } else {
+    pursuer = null;
+  }
+
+  // Bloom sprites for threats
+  threatBlooms.forEach(s => bloomGroup.remove(s));
+  threatBlooms = [];
+  const allThreats = [...threats, ...(pursuer ? [pursuer] : [])];
+  allThreats.forEach(() => {
+    const s = makeBloomSprite(0xFF3366, 30);
+    threatBlooms.push(s);
+  });
+
+  recomputeViewport();
+  updateHUD();
+}
+
+// ─── SCORING ──────────────────────────────────────────────────────────────────
+function getLevelTimeBonus() {
+  return Math.max(0, 500 - Math.floor(levelTimer * 8));
+}
+
+function addReadingSwitch() {
+  levelScore += 100;
+}
+
+function onLevelComplete() {
+  const base = 1000;
+  const timeBonus = getLevelTimeBonus();
+  const deathPenalty = deaths * 50;
+  const lScore = Math.max(0, base + timeBonus + levelScore - deathPenalty);
+  totalScore += lScore;
+  playExit();
+  if (currentLevel < LEVELS.length - 1) {
+    // Next level
+    setTimeout(() => {
+      deaths = 0;
+      levelScore = 0;
+      initLevel(currentLevel + 1);
+    }, 2500);
+  } else {
+    // Win!
+    gameState = 'win';
+    showWinScreen();
+  }
+}
+
+function showWinScreen() {
+  const hi = parseInt(localStorage.getItem(SCORE_KEY) || '0');
+  if (totalScore > hi) localStorage.setItem(SCORE_KEY, String(totalScore));
+  const best = Math.max(hi, totalScore);
+  document.getElementById('winScore').textContent = `SCORE: ${totalScore}`;
+  document.getElementById('winHi').textContent = `BEST: ${best}`;
+  document.getElementById('winScreen').classList.add('visible');
+}
+
+// ─── DEATH HANDLING ───────────────────────────────────────────────────────────
+function onDeath() {
+  if (!hasEverActed) return;
+  if (isDeathAnim) return;
+  deaths++;
+  levelScore -= 50;
+  playDeath();
+  isDeathAnim = true;
+  deathTimer = 0;
+
+  // Spawn particles
+  const s = toScreen(player.x, player.y);
+  const cx = s.sx + TILE_W/2*cachedScale;
+  const cy = s.sy + TILE_H/2*cachedScale;
+  for (let i=0; i<8; i++) {
+    const angle = (Math.PI*2/8)*i + Math.random()*0.3;
+    particles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle)*40, vy: Math.sin(angle)*40,
+      life: 1.0, maxLife: 1.0
+    });
+  }
+
+  // Add ghost
+  ghosts.push({ x: player.x, y: player.y, life: 15.0, maxLife: 15.0 });
+
+  // Respawn
+  const [sx, sy] = LEVELS[currentLevel].start;
+  player.x = sx; player.y = sy; player.layer = 0;
+  currentLayer = 0;
+  playerMoving = false;
+  playerPath = [];
+  refractoryTimer = 0;
+  isDeathAnim = false;
+  updateMusicLayers();
+}
+
+// ─── COLLISION DETECTION ──────────────────────────────────────────────────────
+function checkCollision() {
+  if (!hasEverActed) return;
+  if (gameState !== 'playing') return;
+
+  const allThreats = [...threats, ...(pursuer ? [pursuer] : [])];
+  for (const t of allThreats) {
+    if (t.layer === currentLayer && t.x === player.x && t.y === player.y) {
+      onDeath();
+      return;
+    }
+  }
+
+  // Check win
+  const level = LEVELS[currentLevel];
+  const [ex, ey] = level.exit;
+  if (player.x === ex && player.y === ey) {
+    gameState = 'levelcomplete';
+    onLevelComplete();
+  }
+}
+
+// ─── THREAT PROXIMITY ─────────────────────────────────────────────────────────
+function getOppositeLayerThreatProximity() {
+  const oppLayer = 1 - currentLayer;
+  const allThreats = [...threats, ...(pursuer ? [pursuer] : [])];
+  let minDist = Infinity;
+  for (const t of allThreats) {
+    if (t.layer === oppLayer) {
+      const d = Math.abs(t.x - player.x) + Math.abs(t.y - player.y);
+      if (d < minDist) minDist = d;
+    }
+  }
+  return minDist;
+}
+
+function getSameLayerThreatProximity() {
+  const allThreats = [...threats, ...(pursuer ? [pursuer] : [])];
+  let minDist = Infinity;
+  for (const t of allThreats) {
+    if (t.layer === currentLayer) {
+      const d = Math.abs(t.x - player.x) + Math.abs(t.y - player.y);
+      if (d < minDist) minDist = d;
+    }
+  }
+  return minDist;
+}
+
+// ─── PHASE SWITCH ─────────────────────────────────────────────────────────────
+function doPhaseSwitch() {
+  if (!hasEverActed) hasEverActed = true;
+  if (refractoryTimer > 0) return;
+  const oppDist = getOppositeLayerThreatProximity();
+  const unsafe = oppDist <= 4;
+  currentLayer = 1 - currentLayer;
+  player.layer = currentLayer;
+  refractoryTimer = 0.5;
+  playPhaseSwitch(unsafe);
+  updateMusicLayers();
+  lastSwitchTime = levelTimer;
+
+  // Check reading switch bonus
+  if (oppDist <= 3) {
+    readingSwitchPending = true;
+    switchSurvivedTimer = 0;
+  }
+
+  // Spawn ring
+  const s = toScreen(player.x, player.y);
+  rings.push({
+    x: s.sx + TILE_W/2*cachedScale,
+    y: s.sy + TILE_H/2*cachedScale,
+    r: 0, maxR: 80 * cachedScale, life: 1.0, maxLife: 1.0
+  });
+
+  // Screen flash
+  screenShakeFrames = 2;
+  screenShakeAmt = 2;
+  flashFrames = 2;
+
+  checkCollision();
+}
+
+let flashFrames = 0;
+
+// ─── MOVEMENT ─────────────────────────────────────────────────────────────────
+const DIRS_KEY = {
+  'w': [1,-1], 's': [-1,1], 'a': [-1,-1], 'd': [1,1],
+  'arrowup': [1,-1], 'arrowdown': [-1,1], 'arrowleft': [-1,-1], 'arrowright': [1,1]
+};
+
+function tryMove(dx, dy) {
+  if (!hasEverActed) hasEverActed = true;
+  if (playerMoving) return;
+  if (gameState !== 'playing') return;
+  const nx = player.x + dx, ny = player.y + dy;
+  const N = LEVELS[currentLevel].size;
+  if (nx < 0 || ny < 0 || nx >= N || ny >= N) {
+    screenShakeFrames = 2; screenShakeAmt = 2;
+    return;
+  }
+  const wallSet = currentLayer === 0 ? LEVELS[currentLevel].wallsA : LEVELS[currentLevel].wallsB;
+  if (hasWall(wallSet, nx, ny)) {
+    screenShakeFrames = 2; screenShakeAmt = 2;
+    return;
+  }
+  // Start slide move
+  playerFromX = player.x; playerFromY = player.y;
+  playerToX = nx; playerToY = ny;
+  player.x = nx; player.y = ny;
+  playerMoving = true;
+  playerMoveTimer = 0;
+  playerMoveDuration = 120;
+  playMoveSound();
+  checkCollision();
+}
+
+function startPathMove(tx, ty) {
+  if (!hasEverActed) hasEverActed = true;
+  if (gameState !== 'playing') return;
+  const wallSet = currentLayer === 0 ? LEVELS[currentLevel].wallsA : LEVELS[currentLevel].wallsB;
+  const path = aStar(player.x, player.y, tx, ty, wallSet, LEVELS[currentLevel].size);
+  if (!path || path.length === 0) return;
+  playerPath = path;
+  // Start moving along path
+  stepPath();
+}
+
+function stepPath() {
+  if (playerPath.length === 0) return;
+  if (gameState !== 'playing') { playerPath = []; return; }
+  const next = playerPath.shift();
+  playerFromX = player.x; playerFromY = player.y;
+  playerToX = next.x; playerToY = next.y;
+  player.x = next.x; player.y = next.y;
+  playerMoving = true;
+  playerMoveTimer = 0;
+  playerMoveDuration = 120;
+  playMoveSound();
+  checkCollision();
+}
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+const keysDown = new Set();
+let lastTapTime = 0;
+let lastTapX = 0, lastTapY = 0;
+let tapCount = 0;
+let tapTimer = 0;
+
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (gameState !== 'playing') return;
+  if (k === ' ') { e.preventDefault(); doPhaseSwitch(); return; }
+  const dir = DIRS_KEY[k];
+  if (dir) { e.preventDefault(); tryMove(dir[0], dir[1]); }
+});
+
+canvas.addEventListener('pointerdown', e => {
+  if (gameState !== 'playing') return;
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const px = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const py = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+  // Double-tap detection
+  const now = performance.now();
+  if (now - lastTapTime < 300) {
+    doPhaseSwitch();
+    lastTapTime = 0;
+    return;
+  }
+  lastTapTime = now;
+  lastTapX = px; lastTapY = py;
+
+  // Single tap: pathfind
+  setTimeout(() => {
+    if (performance.now() - lastTapTime > 290) {
+      // Was single tap
+      const tile = fromScreen(px, py);
+      startPathMove(tile.x, tile.y);
+    }
+  }, 310);
+});
+
+// ─── THREAT UPDATE ────────────────────────────────────────────────────────────
+function updateThreats(dt) {
+  const level = LEVELS[currentLevel];
+  for (const t of threats) {
+    if (t.type === 'stationary') {
+      t.renderX = t.x; t.renderY = t.y;
+      continue;
+    }
+    if (t.type === 'patrol' && t.waypoints) {
+      if (t.paused) {
+        t.pauseTimer -= dt * 1000;
+        if (t.pauseTimer <= 0) t.paused = false;
+        continue;
+      }
+      t.moveTimer += dt * 1000;
+      if (t.moveTimer >= t.speed) {
+        t.moveTimer = 0;
+        // Track trail
+        t.trailPositions.unshift({ x: t.x, y: t.y });
+        if (t.trailPositions.length > 4) t.trailPositions.pop();
+        // Advance waypoint
+        const wp = t.waypoints[t.waypointIdx];
+        if (t.x === wp.x && t.y === wp.y) {
+          t.waypointIdx = (t.waypointIdx + 1) % t.waypoints.length;
+          t.paused = true;
+          t.pauseTimer = 200;
+        }
+        // Move toward current waypoint
+        const target = t.waypoints[t.waypointIdx];
+        const dx = Math.sign(target.x - t.x);
+        const dy = Math.sign(target.y - t.y);
+        if (dx !== 0) t.x += dx;
+        else t.y += dy;
+      }
+      t.renderX = t.x; t.renderY = t.y;
+    }
+  }
+
+  // Pursuer
+  if (pursuer) {
+    // Shift timer
+    pursuer.shiftTimer -= dt;
+    if (pursuer.shiftTimer <= 0) {
+      pursuer.layer = 1 - pursuer.layer;
+      pursuer.shiftTimer = pursuerShiftInterval;
+      pursuer.path = [];
+      playPursuerShift();
+    }
+
+    // Recalc path
+    pursuer.pathTimer -= dt;
+    if (pursuer.pathTimer <= 0) {
+      pursuer.pathTimer = 0.4;
+      const wallSet = pursuer.layer === 0 ? level.wallsA : level.wallsB;
+      const newPath = aStar(pursuer.x, pursuer.y, player.x, player.y, wallSet, level.size);
+      if (newPath) pursuer.path = newPath;
+    }
+
+    // Move
+    pursuer.moveTimer += dt * 1000;
+    if (pursuer.moveTimer >= 280 && pursuer.path && pursuer.path.length > 0) {
+      pursuer.moveTimer = 0;
+      const next = pursuer.path.shift();
+      pursuer.x = next.x; pursuer.y = next.y;
+    }
+
+    // Interval decrease every 30s
+    pursuer30sTimer += dt;
+    if (pursuer30sTimer >= 30) {
+      pursuer30sTimer -= 30;
+      pursuerShiftInterval = Math.max(1.0, pursuerShiftInterval - 0.2);
+    }
+
+    pursuer.renderX = pursuer.x; pursuer.renderY = pursuer.y;
+  }
+}
+
+// ─── HEARTBEAT UPDATE ─────────────────────────────────────────────────────────
+function updateHeartbeat() {
+  if (!audioReady || !heartbeatSynth) return;
+  const dist = getOppositeLayerThreatProximity();
+  if (dist <= 8) {
+    const t = Math.max(0, Math.min(1, (8 - dist) / 7));
+    heartbeatSynth._freq = 40 + t * 40;
+    heartbeatSynth._amp = t * 0.8;
+    heartbeatSynth._gainNode.gain.value = 1;
+  } else {
+    heartbeatSynth._amp = 0;
+    heartbeatSynth._gainNode.gain.value = 0;
+  }
+}
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+function updateHUD() {
+  if (hudLevel) hudLevel.textContent = `LEVEL ${currentLevel+1}: ${LEVELS[currentLevel].name.toUpperCase()}`;
+  if (hudLayer) {
+    hudLayer.textContent = currentLayer === 0 ? 'LAYER A' : 'LAYER B';
+    hudLayer.className = currentLayer === 0 ? 'layer-a' : 'layer-b';
+  }
+  const score = Math.max(0, totalScore + Math.max(0, 1000 + getLevelTimeBonus() + levelScore - deaths*50));
+  if (hudScore) hudScore.textContent = `SCORE ${score}`;
+  const hi = parseInt(localStorage.getItem(SCORE_KEY) || '0');
+  if (hudHi) hudHi.textContent = `BEST ${Math.max(hi, score)}`;
+}
+
+// ─── RENDERING (Canvas 2D) ────────────────────────────────────────────────────
+function getLayerColor(layer) {
+  return layer === 0 ? '#00E5FF' : '#FF3366';
+}
+
+function renderGame() {
+  const W = uiCanvas.width, H = uiCanvas.height;
+  uiCtx.clearRect(0, 0, W, H);
+
+  const level = LEVELS[currentLevel];
+  const N = level.size;
+  const sc = cachedScale;
+
+  // Screen shake offset
+  let shakeX = 0, shakeY = 0;
+  if (screenShakeFrames > 0) {
+    shakeX = (Math.random()*2-1)*screenShakeAmt;
+    shakeY = (Math.random()*2-1)*screenShakeAmt;
+    screenShakeFrames--;
+  }
+
+  uiCtx.save();
+  uiCtx.translate(shakeX, shakeY);
+
+  // Flash overlay
+  if (flashFrames > 0) {
+    uiCtx.fillStyle = 'rgba(255,255,255,0.15)';
+    uiCtx.fillRect(0, 0, W, H);
+    flashFrames--;
+  }
+
+  // Ambient tint
+  const tint = currentLayer === 0 ? 'rgba(0,229,255,0.08)' : 'rgba(255,51,102,0.08)';
+  if (!dualLayerVisible) {
+    uiCtx.fillStyle = tint;
+    uiCtx.fillRect(0, 0, W, H);
+  } else {
+    uiCtx.fillStyle = 'rgba(255,255,255,0.05)';
+    uiCtx.fillRect(0, 0, W, H);
+  }
+
+  // Draw floor tiles
+  for (let x=0; x<N; x++) for (let y=0; y<N; y++) {
+    const s = toScreen(x,y);
+    const cx = s.sx, cy = s.sy;
+    const tw = TILE_W*sc, th = TILE_H*sc;
+
+    // Floor diamond
+    drawIsoDiamond(uiCtx, cx + tw/2, cy + th/2, tw/2, th/2, 'none',
+      currentLayer === 0 ? 'rgba(0,229,255,0.2)' : 'rgba(255,51,102,0.2)', 1*sc);
+
+    if (dualLayerVisible) {
+      drawIsoDiamond(uiCtx, cx + tw/2, cy + th/2, tw/2, th/2, 'none',
+        'rgba(255,51,102,0.2)', 1*sc);
+    }
+  }
+
+  // Draw walls
+  const layersToRender = dualLayerVisible ? [0, 1] : [currentLayer];
+  for (const layerIdx of layersToRender) {
+    const isActive = layerIdx === currentLayer;
+    const wallSet = layerIdx === 0 ? level.wallsA : level.wallsB;
+    const lCol = getLayerColor(layerIdx);
+
+    for (let x=0; x<N; x++) for (let y=0; y<N; y++) {
+      if (!hasWall(wallSet, x, y)) continue;
+      const s = toScreen(x,y);
+      const cx = s.sx, cy = s.sy;
+      const tw = TILE_W*sc, th = TILE_H*sc;
+      let fillAlpha = isActive ? 0.06 : 0.02;
+      let strokeAlpha = isActive ? 1.0 : 0.1;
+      if (dualLayerVisible && !isActive) { fillAlpha = 0.04; strokeAlpha = 0.5; }
+
+      // Wall face (top)
+      uiCtx.save();
+      uiCtx.globalAlpha = strokeAlpha;
+      uiCtx.strokeStyle = lCol;
+      uiCtx.lineWidth = 1;
+      uiCtx.fillStyle = lCol.replace(')', `,${fillAlpha})`).replace('rgb(','rgba(');
+
+      // Actually draw as solid top face
+      const hex = lCol;
+      const fillColor = hexToRgba(hex, fillAlpha);
+      const strokeColor = hexToRgba(hex, 1.0);
+      drawIsoDiamond(uiCtx, cx + tw/2, cy + th/2, tw/2, th/2, strokeColor, fillColor, 1*sc);
+
+      // Left face
+      drawIsoLeftFace(uiCtx, cx + tw/2, cy + th/2, tw/2, th/2, sc, hexToRgba(hex, fillAlpha * 1.5), hexToRgba(hex, strokeAlpha * 0.7));
+      // Right face
+      drawIsoRightFace(uiCtx, cx + tw/2, cy + th/2, tw/2, th/2, sc, hexToRgba(hex, fillAlpha * 0.8), hexToRgba(hex, strokeAlpha * 0.5));
+
+      uiCtx.restore();
+    }
+  }
+
+  // Draw threat trail shadows (opposite layer)
+  const allThreats = [...threats, ...(pursuer ? [pursuer] : [])];
+  for (const t of allThreats) {
+    if (t.type === 'stationary') continue;
+    if (t.layer === currentLayer && !dualLayerVisible) continue;
+    if (!t.trailPositions || t.trailPositions.length === 0) continue;
+    for (let i=0; i<t.trailPositions.length; i++) {
+      const tp = t.trailPositions[i];
+      const s = toScreen(tp.x, tp.y);
+      const alpha = (0.4 - i*0.08) * 0.5;
+      const col = getLayerColor(t.layer);
+      const ts = toScreen(tp.x, tp.y);
+      drawThreatToken(uiCtx, ts.sx + TILE_W*sc/2, ts.sy + TILE_H*sc/2, sc*0.4, col, alpha, false);
+    }
+  }
+
+  // Draw threats
+  for (let i=0; i<allThreats.length; i++) {
+    const t = allThreats[i];
+    const isActiveLayer = t.layer === currentLayer;
+    const s = toScreen(t.x, t.y);
+    const cx = s.sx + TILE_W*sc/2, cy = s.sy + TILE_H*sc/2;
+    const col = t.type === 'pursuer' ? '#FFFFFF' : getLayerColor(t.layer);
+    let alpha, useGlow;
+
+    if (dualLayerVisible) {
+      alpha = 1.0; useGlow = true;
+    } else if (isActiveLayer) {
+      alpha = 1.0; useGlow = true;
+    } else {
+      alpha = 0.12; useGlow = false;
+    }
+
+    drawThreatToken(uiCtx, cx, cy, sc * 0.7, col, alpha, useGlow);
+
+    // Update bloom sprite position
+    const bi = i < threatBlooms.length ? i : 0;
+    if (threatBlooms[bi]) {
+      const svp = canvasToThree(cx, cy);
+      threatBlooms[bi].position.set(svp.x, svp.y, 0);
+      threatBlooms[bi].material.color.setStyle(isActiveLayer ? col : '#000000');
+      threatBlooms[bi].material.opacity = isActiveLayer ? 0.6 : 0;
+      threatBlooms[bi].visible = isActiveLayer;
+    }
+  }
+
+  // Ghosts
+  for (let i=ghosts.length-1; i>=0; i--) {
+    const g = ghosts[i];
+    const s = toScreen(g.x, g.y);
+    const cx = s.sx + TILE_W*sc/2, cy = s.sy + TILE_H*sc/2;
+    const alpha = (g.life > 1 ? 0.2 : 0.2 * g.life) * Math.min(1, g.life);
+    drawGhostToken(uiCtx, cx, cy, sc * 0.7, alpha);
+  }
+
+  // Particles
+  for (const p of particles) {
+    const alpha = p.life / p.maxLife;
+    uiCtx.save();
+    uiCtx.globalAlpha = alpha;
+    uiCtx.fillStyle = '#FFFFFF';
+    uiCtx.fillRect(p.x - 1, p.y - 1, 2, 2);
+    uiCtx.restore();
+  }
+
+  // Exit beacon
+  {
+    const [ex, ey] = level.exit;
+    const s = toScreen(ex, ey);
+    const cx = s.sx + TILE_W*sc/2, cy = s.sy + TILE_H*sc/2;
+    const pulse = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(Date.now() * 0.0052));
+    uiCtx.save();
+    uiCtx.globalAlpha = pulse;
+    drawIsoDiamond(uiCtx, cx, cy, 8*sc, 4*sc, '#FFFFFF', 'rgba(255,255,255,0.3)', 1.5);
+    // Light shaft
+    uiCtx.globalAlpha = pulse * 0.6;
+    const grad = uiCtx.createLinearGradient(cx, cy, cx, cy - 32*sc);
+    grad.addColorStop(0, 'rgba(255,255,255,0.8)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    uiCtx.strokeStyle = grad;
+    uiCtx.lineWidth = 1;
+    uiCtx.beginPath();
+    uiCtx.moveTo(cx, cy);
+    uiCtx.lineTo(cx, cy - 32*sc);
+    uiCtx.stroke();
+    uiCtx.restore();
+
+    // Exit bloom
+    const svp = canvasToThree(cx, cy);
+    exitBloom.position.set(svp.x, svp.y, 0);
+    exitBloom.material.opacity = pulse * 0.8;
+  }
+
+  // Player
+  if (gameState === 'playing' || gameState === 'levelcomplete') {
+    let rx, ry;
+    if (playerMoving) {
+      const t = Math.min(1, playerMoveTimer / playerMoveDuration);
+      const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+      const fromS = toScreen(playerFromX, playerFromY);
+      const toS = toScreen(playerToX, playerToY);
+      rx = fromS.sx + (toS.sx - fromS.sx) * ease + TILE_W*sc/2;
+      ry = fromS.sy + (toS.sy - fromS.sy) * ease + TILE_H*sc/2;
+    } else {
+      const s = toScreen(player.x, player.y);
+      rx = s.sx + TILE_W*sc/2;
+      ry = s.sy + TILE_H*sc/2;
+    }
+
+    const lCol = getLayerColor(currentLayer);
+    // Shadow ellipse
+    uiCtx.save();
+    uiCtx.globalAlpha = 0.3;
+    uiCtx.fillStyle = lCol;
+    uiCtx.beginPath();
+    uiCtx.ellipse(rx, ry + 2*sc, 12*sc, 5*sc, 0, 0, Math.PI*2);
+    uiCtx.fill();
+    uiCtx.restore();
+    // Token
+    drawPlayerToken(uiCtx, rx, ry, sc * 0.85, lCol);
+
+    // Refractory arc
+    if (refractoryTimer > 0) {
+      const arcFrac = 1 - (refractoryTimer / 0.5);
+      uiCtx.save();
+      uiCtx.globalAlpha = 0.7;
+      uiCtx.strokeStyle = lCol;
+      uiCtx.lineWidth = 2;
+      uiCtx.beginPath();
+      uiCtx.arc(rx, ry + 6*sc, 12*sc, -Math.PI/2, -Math.PI/2 + Math.PI*2*arcFrac);
+      uiCtx.stroke();
+      uiCtx.restore();
+    }
+
+    // Bloom player
+    const svp = canvasToThree(rx, ry);
+    playerBloom.position.set(svp.x, svp.y, 0);
+    playerBloom.material.color.setStyle(lCol);
+    playerBloom.material.opacity = 0.8;
+  }
+
+  // Phase switch rings
+  for (const ring of rings) {
+    uiCtx.save();
+    uiCtx.globalAlpha = ring.life / ring.maxLife;
+    uiCtx.strokeStyle = '#FFFFFF';
+    uiCtx.lineWidth = 2;
+    uiCtx.beginPath();
+    uiCtx.arc(ring.x, ring.y, ring.r, 0, Math.PI*2);
+    uiCtx.stroke();
+    uiCtx.restore();
+  }
+
+  // Vignette
+  drawVignette(uiCtx, W, H);
+
+  uiCtx.restore();
+}
+
+function drawIsoDiamond(ctx, cx, cy, hw, hh, strokeColor, fillColor, lw) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - hh);
+  ctx.lineTo(cx + hw, cy);
+  ctx.lineTo(cx, cy + hh);
+  ctx.lineTo(cx - hw, cy);
+  ctx.closePath();
+  if (fillColor && fillColor !== 'none') { ctx.fillStyle = fillColor; ctx.fill(); }
+  if (strokeColor && strokeColor !== 'none') { ctx.strokeStyle = strokeColor; ctx.lineWidth = lw; ctx.stroke(); }
+}
+
+function drawIsoLeftFace(ctx, cx, cy, hw, hh, sc, fillColor, strokeColor) {
+  const faceH = hh * 1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx - hw, cy);
+  ctx.lineTo(cx, cy + hh);
+  ctx.lineTo(cx, cy + hh + faceH);
+  ctx.lineTo(cx - hw, cy + faceH);
+  ctx.closePath();
+  if (fillColor) { ctx.fillStyle = fillColor; ctx.fill(); }
+  if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = 0.5; ctx.stroke(); }
+}
+
+function drawIsoRightFace(ctx, cx, cy, hw, hh, sc, fillColor, strokeColor) {
+  const faceH = hh * 1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx + hw, cy);
+  ctx.lineTo(cx, cy + hh);
+  ctx.lineTo(cx, cy + hh + faceH);
+  ctx.lineTo(cx + hw, cy + faceH);
+  ctx.closePath();
+  if (fillColor) { ctx.fillStyle = fillColor; ctx.fill(); }
+  if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = 0.5; ctx.stroke(); }
+}
+
+function drawPlayerToken(ctx, cx, cy, sc, layerColor) {
+  ctx.save();
+  // Glow
+  ctx.shadowColor = layerColor;
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 4*sc);
+  ctx.lineTo(cx + 8*sc, cy);
+  ctx.lineTo(cx, cy + 4*sc);
+  ctx.lineTo(cx - 8*sc, cy);
+  ctx.closePath();
+  ctx.fill();
+  // Inner glow stroke
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = layerColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawThreatToken(ctx, cx, cy, sc, color, alpha, glow) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (glow) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+  }
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 4*sc);
+  ctx.lineTo(cx + 7*sc, cy);
+  ctx.lineTo(cx, cy + 4*sc);
+  ctx.lineTo(cx - 7*sc, cy);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawGhostToken(ctx, cx, cy, sc, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 4*sc);
+  ctx.lineTo(cx + 8*sc, cy);
+  ctx.lineTo(cx, cy + 4*sc);
+  ctx.lineTo(cx - 8*sc, cy);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawVignette(ctx, W, H) {
+  const grad = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.65/2, W/2, H/2, Math.max(W,H)/2);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Edge pulse for nearby opposite-layer threats
+  const oppDist = getOppositeLayerThreatProximity();
+  if (oppDist <= 3) {
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.006);
+    const edgeAlpha = 0.15 * pulse * (1 - oppDist/4);
+    const col = currentLayer === 0 ? '255,51,102' : '0,229,255';
+    const grad2 = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.65/2, W/2, H/2, Math.max(W,H)/2);
+    grad2.addColorStop(0, `rgba(${col},0)`);
+    grad2.addColorStop(1, `rgba(${col},${edgeAlpha})`);
+    ctx.fillStyle = grad2;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function canvasToThree(cx, cy) {
+  return { x: cx - vpW/2, y: vpH/2 - cy };
+}
+
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+function resize() {
+  vpW = window.innerWidth;
+  vpH = window.innerHeight;
+  canvas.width = vpW * window.devicePixelRatio;
+  canvas.height = vpH * window.devicePixelRatio;
+  canvas.style.width = vpW + 'px';
+  canvas.style.height = vpH + 'px';
+  uiCanvas.width = vpW;
+  uiCanvas.height = vpH;
+  uiCanvas.style.width = vpW + 'px';
+  uiCanvas.style.height = vpH + 'px';
+
+  renderer.setSize(vpW, vpH);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  composer.setSize(vpW, vpH);
+  bloomPass.resolution.set(vpW, vpH);
+
+  camera.left = -vpW/2; camera.right = vpW/2;
+  camera.top = vpH/2; camera.bottom = -vpH/2;
+  camera.updateProjectionMatrix();
+
+  planeGeo.dispose();
+  const pg = new THREE.PlaneGeometry(vpW, vpH);
+  planeMesh.geometry = pg;
+
+  // Adjust camera for portrait
+  if (vpW / vpH < 1) {
+    camera.zoom = 0.7;
+  } else {
+    camera.zoom = 1.0;
+  }
+  camera.updateProjectionMatrix();
+
+  recomputeViewport();
+  resizeBorderSvg();
+}
+
+function resizeBorderSvg() {
+  const svg = document.getElementById('borderSvg');
+  if (!svg) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  const perim = 2*(W-48) + 2*(H-48);
+  const rect = document.getElementById('borderRect');
+  if (rect) {
+    rect.setAttribute('width', W - 48);
+    rect.setAttribute('height', H - 48);
+    rect.setAttribute('stroke-dasharray', String(perim));
+    rect.setAttribute('stroke-dashoffset', String(perim));
+    // Trigger redraw animation
+    rect.getBoundingClientRect();
+    rect.style.transition = 'none';
+    rect.setAttribute('stroke-dashoffset', String(perim));
+    void rect.getBoundingClientRect();
+  }
+}
+
+window.addEventListener('resize', resize);
+
+// ─── START SCREEN ANIMATION ───────────────────────────────────────────────────
+const idleCanvas = document.getElementById('idleCanvas');
+let idleCtx = null;
+let idleTime = 0;
+const IDLE_SCALE = 0.6;
+const IDLE_TILE_W = TILE_W * IDLE_SCALE;
+const IDLE_TILE_H = TILE_H * IDLE_SCALE;
+
+function initIdleCanvas() {
+  if (!idleCanvas) return;
+  const parent = idleCanvas.parentElement;
+  const W = parent ? parent.clientWidth : window.innerWidth;
+  const H = parent ? parent.clientHeight * 0.6 : window.innerHeight * 0.6;
+  idleCanvas.width = W || 800;
+  idleCanvas.height = H || 300;
+  if (typeof idleCanvas.getContext === 'function') {
+    idleCtx = idleCanvas.getContext('2d');
+  }
+}
+
+// Ghost player path for idle animation
+const IDLE_PATH = [
+  {x:0,y:7,layer:0}, {x:1,y:6,layer:0}, {x:1,y:5,layer:0},
+  {x:2,y:4,layer:0}, {x:2,y:3,layer:0}, // Wall hit here
+  {x:2,y:3,layer:0, shake:true}, // shake (wall)
+  {x:2,y:3,layer:1, switchHere:true}, // phase switch
+  {x:3,y:3,layer:1}, {x:4,y:3,layer:1}, {x:5,y:3,layer:1},
+  {x:5,y:2,layer:1}, {x:5,y:1,layer:1}, {x:6,y:0,layer:1},
+  {x:6,y:0,layer:0, switchHere:true},
+  {x:7,y:0,layer:0}
+];
+
+let idlePathIdx = 0;
+let idlePathTimer = 0;
+let idleCurrentLayer = 0;
+let idleGhostX = 0, idleGhostY = 7;
+let idleShake = 0;
+
+function renderIdle(dt) {
+  if (!idleCtx) return;
+  const W = idleCanvas.width, H = idleCanvas.height;
+  idleCtx.clearRect(0, 0, W, H);
+  idleTime += dt;
+
+  const N = 8;
+  const pad = 20;
+  // Compute tile scale for idle
+  let minSX=Infinity,maxSX=-Infinity,minSY=Infinity,maxSY=-Infinity;
+  for (let x=0;x<N;x++) for(let y=0;y<N;y++){
+    const sx=(x-y)*ISO_X*IDLE_SCALE, sy=(x+y)*ISO_Y*IDLE_SCALE;
+    if(sx<minSX)minSX=sx; if(sx>maxSX)maxSX=sx;
+    if(sy<minSY)minSY=sy; if(sy>maxSY)maxSY=sy;
+  }
+  const gW=maxSX-minSX+IDLE_TILE_W, gH=maxSY-minSY+IDLE_TILE_H;
+  const scX=(W-pad*2)/gW, scY=(H-pad*2)/gH;
+  const sc=Math.min(scX,scY,1.0);
+  const offX=W/2-(maxSX+minSX)/2*sc-IDLE_TILE_W/2*sc;
+  const offY=H/2-(maxSY+minSY)/2*sc-IDLE_TILE_H/2*sc;
+
+  function idleToScreen(gx,gy){
+    return {
+      sx:(gx-gy)*ISO_X*IDLE_SCALE*sc+offX,
+      sy:(gx+gy)*ISO_Y*IDLE_SCALE*sc+offY
+    };
+  }
+
+  // Layer A tile pulse
+  const aPulse=0.06+0.08*(0.5+0.5*Math.sin(idleTime*Math.PI*2/2.4));
+  // Layer B shadow pulse (opposite phase)
+  const bPulse=0.08+0.04*(0.5+0.5*Math.sin(idleTime*Math.PI*2/2.4+Math.PI));
+
+  const wallsA = LEVELS[0].wallsA;
+  const wallsB = LEVELS[0].wallsB;
+
+  for (let x=0;x<N;x++) for(let y=0;y<N;y++){
+    const {sx,sy}=idleToScreen(x,y);
+    const tw=IDLE_TILE_W*sc, th=IDLE_TILE_H*sc;
+    const cx=sx+tw/2, cy=sy+th/2;
+
+    // Floor
+    idleCtx.save();
+    idleCtx.globalAlpha=aPulse;
+    drawIsoDiamond(idleCtx,cx,cy,tw/2,th/2,'rgba(0,229,255,0.4)',`rgba(0,229,255,${aPulse})`,0.5);
+    idleCtx.restore();
+
+    // B shadow
+    if(hasWall(wallsB,x,y)){
+      idleCtx.save();
+      idleCtx.globalAlpha=bPulse;
+      drawIsoDiamond(idleCtx,cx,cy,tw/2,th/2,'none',`rgba(255,51,102,${bPulse})`,0);
+      idleCtx.restore();
+    }
+
+    // A walls
+    if(hasWall(wallsA,x,y)){
+      idleCtx.save();
+      drawIsoDiamond(idleCtx,cx,cy,tw/2,th/2,'rgba(0,229,255,0.8)',`rgba(0,229,255,0.08)`,0.8);
+      idleCtx.restore();
+    }
+  }
+
+  // Threat token at (4,3)
+  const threatPulse=0.6+0.4*(0.5+0.5*Math.sin(idleTime*Math.PI*2/3.0));
+  const {sx:tsx,sy:tsy}=idleToScreen(4,3);
+  const tw=IDLE_TILE_W*sc, th=IDLE_TILE_H*sc;
+  idleCtx.save();
+  idleCtx.globalAlpha=threatPulse;
+  idleCtx.fillStyle='#FF3366';
+  idleCtx.shadowColor='#FF3366';
+  idleCtx.shadowBlur=8;
+  drawIsoDiamond(idleCtx,tsx+tw/2,tsy+th/2,5*sc,2.5*sc,'#FF3366','#FF3366',0.5);
+  idleCtx.restore();
+
+  // Ghost player animation
+  idlePathTimer += dt;
+  const stepDur = 6.0 / IDLE_PATH.length;
+  if (idlePathTimer >= stepDur) {
+    idlePathTimer -= stepDur;
+    idlePathIdx = (idlePathIdx + 1) % IDLE_PATH.length;
+    const step = IDLE_PATH[idlePathIdx];
+    idleGhostX = step.x; idleGhostY = step.y;
+    idleCurrentLayer = step.layer;
+    if (step.shake) idleShake = 0.1;
+  }
+
+  const {sx:gsx,sy:gsy}=idleToScreen(idleGhostX,idleGhostY);
+  const gcx=gsx+IDLE_TILE_W*sc/2+(idleShake>0?(Math.random()*4-2):0);
+  const gcy=gsy+IDLE_TILE_H*sc/2+(idleShake>0?(Math.random()*2-1):0);
+  if(idleShake>0) idleShake-=dt;
+
+  idleCtx.save();
+  idleCtx.globalAlpha=0.7;
+  const lCol=idleCurrentLayer===0?'#00E5FF':'#FF3366';
+  idleCtx.shadowColor=lCol;
+  idleCtx.shadowBlur=8;
+  idleCtx.fillStyle='rgba(255,255,255,0.7)';
+  idleCtx.strokeStyle=lCol;
+  idleCtx.lineWidth=1;
+  const gsc=sc*0.8;
+  idleCtx.beginPath();
+  idleCtx.moveTo(gcx,gcy-4*gsc);
+  idleCtx.lineTo(gcx+8*gsc,gcy);
+  idleCtx.lineTo(gcx,gcy+4*gsc);
+  idleCtx.lineTo(gcx-8*gsc,gcy);
+  idleCtx.closePath();
+  idleCtx.fill();
+  idleCtx.stroke();
+  idleCtx.restore();
+}
+
+// ─── MAIN GAME LOOP ───────────────────────────────────────────────────────────
+let lastTime = 0;
+
+function gameLoop(ts) {
+  requestAnimationFrame(gameLoop);
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+
+  // Update canvas texture
+  canvasTexture.needsUpdate = true;
+
+  if (gameState === 'start') {
+    renderIdle(dt);
+    renderer.render(scene, camera);
+    return;
+  }
+
+  if (gameState !== 'playing' && gameState !== 'levelcomplete') {
+    composer.render();
+    return;
+  }
+
+  // Update timers
+  levelTimer += dt;
+  if (refractoryTimer > 0) refractoryTimer = Math.max(0, refractoryTimer - dt);
+
+  // Phase efficiency tracking
+  if (readingSwitchPending) {
+    switchSurvivedTimer += dt;
+    if (switchSurvivedTimer >= 1.0) {
+      addReadingSwitch();
+      readingSwitchPending = false;
+    }
+  }
+
+  // Update player movement
+  if (playerMoving) {
+    playerMoveTimer += dt * 1000;
+    if (playerMoveTimer >= playerMoveDuration) {
+      playerMoving = false;
+      playerMoveTimer = playerMoveDuration;
+      if (playerPath.length > 0) {
+        // Continue path
+        stepPath();
+      }
+    }
+  }
+
+  // Update threats
+  updateThreats(dt);
+
+  // Wow moment (Level 4)
+  if (currentLevel === 3 && LEVELS[3].wowMoment && !hasFlashedL4 && levelTimer >= 45.0) {
+    hasFlashedL4 = true;
+    dualLayerVisible = true;
+    dualLayerTimer = 1.8;
+    flashFrames = 3;
+    playDrone();
+    if (audioReady && musicAGain && musicBGain) {
+      musicAGain.gain.linearRampTo(0.07, 0.1);
+      musicBGain.gain.linearRampTo(0.07, 0.1);
+    }
+  }
+  if (dualLayerVisible) {
+    dualLayerTimer -= dt;
+    wowPulse += dt;
+    if (dualLayerTimer <= 0) {
+      dualLayerVisible = false;
+      flashFrames = 3;
+      updateMusicLayers();
+    }
+  }
+
+  // Update ghosts
+  for (let i=ghosts.length-1; i>=0; i--) {
+    ghosts[i].life -= dt;
+    if (ghosts[i].life <= 0) ghosts.splice(i, 1);
+  }
+
+  // Update particles
+  for (let i=particles.length-1; i>=0; i--) {
+    const p = particles[i];
+    const progress = 1 - p.life / p.maxLife;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt * 3.33;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // Update rings
+  for (let i=rings.length-1; i>=0; i--) {
+    const ring = rings[i];
+    ring.life -= dt / 0.15;
+    ring.r = ring.maxR * (1 - ring.life / ring.maxLife);
+    if (ring.life <= 0) rings.splice(i, 1);
+  }
+
+  // Check collision each frame
+  if (!isDeathAnim) checkCollision();
+
+  // Update heartbeat
+  updateHeartbeat();
+
+  // Render
+  renderGame();
+  updateHUD();
+
+  // Compose with bloom
+  composer.render();
+}
+
+// ─── BORDER SVG ANIMATION ─────────────────────────────────────────────────────
+function animateBorder() {
+  const rect = document.getElementById('borderRect');
+  if (!rect) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  const perim = 2*(W-48) + 2*(H-48);
+  rect.setAttribute('width', W - 48);
+  rect.setAttribute('height', H - 48);
+  rect.setAttribute('stroke-dasharray', String(perim));
+  rect.setAttribute('stroke-dashoffset', String(perim));
+
+  // Add SMIL animation
+  const anim = document.createElementNS('http://www.w3.org/2000/svg','animate');
+  anim.setAttribute('attributeName','stroke-dashoffset');
+  anim.setAttribute('from', String(perim));
+  anim.setAttribute('to', '0');
+  anim.setAttribute('dur', '2s');
+  anim.setAttribute('begin', '0.3s');
+  anim.setAttribute('fill', 'freeze');
+  anim.setAttribute('calcMode', 'spline');
+  anim.setAttribute('keySplines', '0.4 0 0.2 1');
+  rect.appendChild(anim);
+
+  // After draw, pulse
+  setTimeout(() => {
+    const pulseAnim = document.createElementNS('http://www.w3.org/2000/svg','animate');
+    pulseAnim.setAttribute('attributeName','stroke-opacity');
+    pulseAnim.setAttribute('values','0.4;0.2;0.4');
+    pulseAnim.setAttribute('dur', '4s');
+    pulseAnim.setAttribute('repeatCount', 'indefinite');
+    rect.appendChild(pulseAnim);
+  }, 2300);
+}
+
+// ─── UI BUTTON HANDLERS ───────────────────────────────────────────────────────
+document.getElementById('goRestart').addEventListener('pointerdown', () => {
+  document.getElementById('gameOverScreen').classList.remove('visible');
+  totalScore = 0; deaths = 0; levelScore = 0;
+  initLevel(0);
+  gameState = 'playing';
+  hasEverActed = false;
+});
+
+document.getElementById('winRestart').addEventListener('pointerdown', () => {
+  document.getElementById('winScreen').classList.remove('visible');
+  totalScore = 0; deaths = 0; levelScore = 0;
+  initLevel(0);
+  gameState = 'playing';
+  hasEverActed = false;
+});
+
+// ─── START ────────────────────────────────────────────────────────────────────
+resize();
+initIdleCanvas();
+animateBorder();
+
+// Pre-init level 0 (for idle rendering reference)
+initLevel(0);
+gameState = 'start';
+
+// Start game loop
+requestAnimationFrame(gameLoop);
+
+document.getElementById('startScreen').addEventListener('pointerdown', () => {
+  gameState = 'playing';
+  hasEverActed = false;
+  document.getElementById('startScreen').classList.add('hidden');
+  initAudio().catch(() => {});
+}, { once: true });
+
+// Also allow spacebar to start
+document.addEventListener('keydown', e => {
+  if (e.key === ' ' && gameState === 'start') {
+    e.preventDefault();
+    gameState = 'playing';
+    hasEverActed = false;
+    document.getElementById('startScreen').classList.add('hidden');
+    initAudio().catch(() => {});
+  }
+}, { once: true });
+
+</script>
+</body>
+</html>
