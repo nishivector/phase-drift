@@ -67,7 +67,7 @@
     0%, 100% { opacity: 0.5; }
     50% { opacity: 0.15; }
   }
-  #gameOverScreen {
+  #deadScreen {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(10,15,30,0.92);
     display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -76,18 +76,18 @@
     transition: opacity 0.5s ease;
     color: #fff;
   }
-  #gameOverScreen.visible { display: flex; opacity: 1; pointer-events: all; }
-  #gameOverScreen h2 { font-size: 36px; color: #FF3366; margin-bottom: 16px; letter-spacing: 0.1em; }
-  #gameOverScreen .score { font-size: 24px; color: #00E5FF; margin-bottom: 8px; }
-  #gameOverScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
-  #gameOverScreen button {
+  #deadScreen.visible { display: flex; opacity: 1; pointer-events: all; }
+  #deadScreen h2 { font-size: 36px; color: #FF3366; margin-bottom: 16px; letter-spacing: 0.1em; }
+  #deadScreen .score { font-size: 24px; color: #00E5FF; margin-bottom: 8px; }
+  #deadScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
+  #deadScreen button {
     background: none; border: 2px solid #00E5FF; color: #00E5FF;
     font-family: 'Courier New', monospace; font-size: 16px;
     padding: 12px 32px; cursor: pointer; letter-spacing: 0.1em;
     transition: background 0.2s, color 0.2s;
   }
-  #gameOverScreen button:hover { background: #00E5FF; color: #0A0F1E; }
-  #winScreen {
+  #deadScreen button:hover { background: #00E5FF; color: #0A0F1E; }
+  #completionScreen {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(10,15,30,0.92);
     display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -96,17 +96,17 @@
     transition: opacity 0.5s ease;
     color: #fff;
   }
-  #winScreen.visible { display: flex; opacity: 1; pointer-events: all; }
-  #winScreen h2 { font-size: 36px; color: #00E5FF; margin-bottom: 16px; letter-spacing: 0.1em; }
-  #winScreen .score { font-size: 24px; color: #fff; margin-bottom: 8px; }
-  #winScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
-  #winScreen button {
+  #completionScreen.visible { display: flex; opacity: 1; pointer-events: all; }
+  #completionScreen h2 { font-size: 36px; color: #00E5FF; margin-bottom: 16px; letter-spacing: 0.1em; }
+  #completionScreen .score { font-size: 24px; color: #fff; margin-bottom: 8px; }
+  #completionScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
+  #completionScreen button {
     background: none; border: 2px solid #00E5FF; color: #00E5FF;
     font-family: 'Courier New', monospace; font-size: 16px;
     padding: 12px 32px; cursor: pointer; letter-spacing: 0.1em;
     transition: background 0.2s, color 0.2s;
   }
-  #winScreen button:hover { background: #00E5FF; color: #0A0F1E; }
+  #completionScreen button:hover { background: #00E5FF; color: #0A0F1E; }
   #hud {
     position: fixed; top: 16px; left: 16px;
     color: rgba(255,255,255,0.6); font-size: 13px;
@@ -196,19 +196,19 @@
 </div>
 
 <!-- GAME OVER -->
-<div id="gameOverScreen">
+<div id="deadScreen">
   <h2>SIGNAL LOST</h2>
-  <div class="score" id="goScore"></div>
-  <div class="hi" id="goHi"></div>
-  <button id="goRestart">RESTART</button>
+  <div class="score" id="deadScore"></div>
+  <div class="hi" id="deadHi"></div>
+  <button id="deadRestart">RESTART</button>
 </div>
 
 <!-- WIN -->
-<div id="winScreen">
+<div id="completionScreen">
   <h2>TRANSIT COMPLETE</h2>
-  <div class="score" id="winScore"></div>
-  <div class="hi" id="winHi"></div>
-  <button id="winRestart">PLAY AGAIN</button>
+  <div class="score" id="completionScore"></div>
+  <div class="hi" id="completionHi"></div>
+  <button id="completionRestart">PLAY AGAIN</button>
 </div>
 
 <!-- GitHub -->
@@ -941,9 +941,9 @@ function showWinScreen() {
   const hi = parseInt(localStorage.getItem(SCORE_KEY) || '0');
   if (totalScore > hi) localStorage.setItem(SCORE_KEY, String(totalScore));
   const best = Math.max(hi, totalScore);
-  document.getElementById('winScore').textContent = `SCORE: ${totalScore}`;
-  document.getElementById('winHi').textContent = `BEST: ${best}`;
-  document.getElementById('winScreen').classList.add('visible');
+  document.getElementById('completionScore').textContent = `SCORE: ${totalScore}`;
+  document.getElementById('completionHi').textContent = `BEST: ${best}`;
+  document.getElementById('completionScreen').classList.add('visible');
 }
 
 // ─── DEATH HANDLING ───────────────────────────────────────────────────────────
@@ -2005,16 +2005,16 @@ function animateBorder() {
 }
 
 // ─── UI BUTTON HANDLERS ───────────────────────────────────────────────────────
-document.getElementById('goRestart').addEventListener('pointerdown', () => {
-  document.getElementById('gameOverScreen').classList.remove('visible');
+document.getElementById('deadRestart').addEventListener('pointerdown', () => {
+  document.getElementById('deadScreen').classList.remove('visible');
   totalScore = 0; deaths = 0; levelScore = 0;
   initLevel(0);
   gameState = 'playing';
   hasEverActed = false;
 });
 
-document.getElementById('winRestart').addEventListener('pointerdown', () => {
-  document.getElementById('winScreen').classList.remove('visible');
+document.getElementById('completionRestart').addEventListener('pointerdown', () => {
+  document.getElementById('completionScreen').classList.remove('visible');
   totalScore = 0; deaths = 0; levelScore = 0;
   initLevel(0);
   gameState = 'playing';
