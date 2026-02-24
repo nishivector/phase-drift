@@ -70,13 +70,13 @@
   #gameOverScreen {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(10,15,30,0.92);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
     z-index: 200;
     opacity: 0; pointer-events: none;
     transition: opacity 0.5s ease;
     color: #fff;
   }
-  #gameOverScreen.visible { opacity: 1; pointer-events: all; }
+  #gameOverScreen.visible { display: flex; opacity: 1; pointer-events: all; }
   #gameOverScreen h2 { font-size: 36px; color: #FF3366; margin-bottom: 16px; letter-spacing: 0.1em; }
   #gameOverScreen .score { font-size: 24px; color: #00E5FF; margin-bottom: 8px; }
   #gameOverScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
@@ -90,13 +90,13 @@
   #winScreen {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(10,15,30,0.92);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
     z-index: 200;
     opacity: 0; pointer-events: none;
     transition: opacity 0.5s ease;
     color: #fff;
   }
-  #winScreen.visible { opacity: 1; pointer-events: all; }
+  #winScreen.visible { display: flex; opacity: 1; pointer-events: all; }
   #winScreen h2 { font-size: 36px; color: #00E5FF; margin-bottom: 16px; letter-spacing: 0.1em; }
   #winScreen .score { font-size: 24px; color: #fff; margin-bottom: 8px; }
   #winScreen .hi { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
@@ -1140,8 +1140,11 @@ document.addEventListener('keydown', e => {
   if (dir) { e.preventDefault(); tryMove(dir[0], dir[1]); }
 });
 
+let gameStartTime = 0;
 canvas.addEventListener('pointerdown', e => {
   if (gameState !== 'playing') return;
+  // Ignore taps within 600ms of game start (prevents start-screen tap bleed)
+  if (performance.now() - gameStartTime < 600) return;
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const px = (e.clientX - rect.left) * (canvas.width / rect.width);
@@ -2034,6 +2037,7 @@ function startGame() {
   if (gameState !== 'start') return;
   gameState = 'playing';
   hasEverActed = false;
+  gameStartTime = performance.now();
   const ss = document.getElementById('startScreen');
   ss.classList.add('hidden');
   initAudio().catch(() => {});
