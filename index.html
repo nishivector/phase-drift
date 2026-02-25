@@ -115,6 +115,62 @@
   #hud span { display: block; }
   #hud .layer-a { color: #00E5FF; }
   #hud .layer-b { color: #FF3366; }
+  #instructionsScreen {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: #0A0F1E;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 90;
+    font-family: 'Courier New', monospace;
+    animation: fadeInScreen 0.3s ease-out forwards;
+  }
+  #instructionsScreen.hiding { animation: fadeOutScreen 0.3s ease-out forwards; }
+  #instructionsScreen.hidden { display: none; }
+  @keyframes fadeInScreen { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeOutScreen { from { opacity: 1; } to { opacity: 0; } }
+  #instructionsInner {
+    max-width: 320px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #instructionsTitle {
+    font-size: 14px;
+    color: #00E5FF;
+    letter-spacing: 0.2em;
+    font-family: 'Courier New', monospace;
+    margin-bottom: 24px;
+  }
+  .instr-line {
+    font-size: 13px;
+    font-family: 'Courier New', monospace;
+    color: rgba(255,255,255,0.8);
+    line-height: 2.2em;
+    width: 100%;
+    text-align: left;
+  }
+  #instructionsDivider {
+    width: 120px;
+    height: 1px;
+    background: rgba(0,229,255,0.3);
+    margin: 20px 0 16px 0;
+  }
+  #instructionsPrompt {
+    font-size: 12px;
+    color: rgba(0,229,255,0.6);
+    font-family: 'Courier New', monospace;
+    opacity: 0;
+    animation: instrPromptAppear 0.3s ease forwards 0.8s, instrPromptBlink 1s ease-in-out infinite 0.8s;
+  }
+  @keyframes instrPromptAppear { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes instrPromptBlink {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 0.15; }
+  }
 </style>
 </head>
 <body>
@@ -192,6 +248,18 @@
   ">
     <div style="color: rgba(255,255,255,0.4); font-size: 12px; letter-spacing: 0.08em; font-family: 'Courier New', monospace; margin-bottom: 4px;">Tap to move · Double-tap to phase-shift</div>
     <div style="color: rgba(255,255,255,0.4); font-size: 12px; letter-spacing: 0.08em; font-family: 'Courier New', monospace;">The ghost outlines are threats in the other world</div>
+  </div>
+</div>
+
+<!-- INSTRUCTIONS SCREEN -->
+<div id="instructionsScreen" class="hidden">
+  <div id="instructionsInner">
+    <div id="instructionsTitle">HOW TO PLAY</div>
+    <div class="instr-line">→&nbsp;&nbsp;Tap a tile to move there</div>
+    <div class="instr-line">⟳&nbsp;&nbsp;Double-tap to phase-shift between worlds</div>
+    <div class="instr-line">◈&nbsp;&nbsp;Ghost outlines are threats in the other world</div>
+    <div id="instructionsDivider"></div>
+    <div id="instructionsPrompt">Tap to begin</div>
   </div>
 </div>
 
@@ -2094,24 +2162,35 @@ gameState = 'start';
 // Start game loop
 requestAnimationFrame(gameLoop);
 
-function startGame() {
-  if (gameState !== 'start') return;
-  gameState = 'playing';
-  hasEverActed = false;
-  gameStartTime = performance.now();
-  const ss = document.getElementById('startScreen');
-  ss.classList.add('hidden');
+function showInstructions() {
+  document.getElementById('startScreen').classList.add('hidden');
+  document.getElementById('instructionsScreen').classList.remove('hidden');
   initAudio().catch(() => {});
 }
 
+function startFromInstructions() {
+  const el = document.getElementById('instructionsScreen');
+  el.classList.add('hiding');
+  setTimeout(() => {
+    el.classList.add('hidden');
+    gameStartTime = performance.now();
+    gameState = 'playing';
+  }, 300);
+}
+
+document.getElementById('instructionsScreen').addEventListener('pointerdown', startFromInstructions, { once: true });
+
 document.getElementById('startScreen').addEventListener('pointerdown', () => {
-  startGame();
+  if (gameState !== 'start') return;
+  hasEverActed = false;
+  showInstructions();
 }, { once: true });
 
 document.addEventListener('keydown', function startKey(e) {
   if (e.key === ' ' && gameState === 'start') {
     e.preventDefault();
-    startGame();
+    hasEverActed = false;
+    showInstructions();
     document.removeEventListener('keydown', startKey);
   }
 });
