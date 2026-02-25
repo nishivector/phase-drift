@@ -181,6 +181,18 @@
   <!-- Idle canvas -->
   <canvas id="idleCanvas"></canvas>
   <p id="startPrompt">Press Space or tap to begin</p>
+  <div id="startHints" style="
+    position: fixed;
+    top: calc(80% + 28px);
+    left: 0; width: 100%;
+    text-align: center;
+    z-index: 102;
+    opacity: 0;
+    animation: promptAppear 0.5s ease forwards 2.2s;
+  ">
+    <div style="color: rgba(255,255,255,0.4); font-size: 12px; letter-spacing: 0.08em; font-family: 'Courier New', monospace; margin-bottom: 4px;">Tap to move · Double-tap to phase-shift</div>
+    <div style="color: rgba(255,255,255,0.4); font-size: 12px; letter-spacing: 0.08em; font-family: 'Courier New', monospace;">The ghost outlines are threats in the other world</div>
+  </div>
 </div>
 
 <!-- GAME CANVAS -->
@@ -703,8 +715,11 @@ async function initAudio() {
   await Tone.start();
   audioReady = true;
 
+  // Master volume node at -3dB (≈0.708 linear)
+  const masterGain = new Tone.Gain(0.708).toDestination();
+
   // Music Layer A: clean cold arpeggios
-  musicAGain = new Tone.Gain(0.35).toDestination();
+  musicAGain = new Tone.Gain(0.35).connect(masterGain);
   const noteA = ['C5','E5','G5','B4','A4','G5','F#5','E5'];
   let noteIdxA = 0;
   const synthA = new Tone.Synth({ oscillator:{ type:'triangle' }, envelope:{ attack:0.01, decay:0.15, sustain:0.2, release:0.3 } });
@@ -715,7 +730,7 @@ async function initAudio() {
   }, '8n');
 
   // Music Layer B: detuned warm
-  musicBGain = new Tone.Gain(0.07).toDestination();
+  musicBGain = new Tone.Gain(0.07).connect(masterGain);
   const noteB = ['A4','C5','E5','G#4','F#4','A4','D5','C5'];
   let noteIdxB = 0;
   const synthB = new Tone.Synth({ oscillator:{ type:'sawtooth' }, envelope:{ attack:0.02, decay:0.2, sustain:0.15, release:0.4 }, detune: 12 });
@@ -732,7 +747,7 @@ async function initAudio() {
 
   // Heartbeat
   heartbeatSynth = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:0.005, decay:0.1, sustain:0, release:0.05 } });
-  const hbGain = new Tone.Gain(0).toDestination();
+  const hbGain = new Tone.Gain(0).connect(masterGain);
   heartbeatSynth.connect(hbGain);
   heartbeatSynth._gainNode = hbGain;
   heartbeatLoop = new Tone.Loop(time => {
@@ -742,38 +757,38 @@ async function initAudio() {
 
   // Move synth
   moveSynth = new Tone.Synth({ oscillator:{ type:'triangle' }, envelope:{ attack:0.001, decay:0.04, sustain:0, release:0.02 } });
-  moveSynth.toDestination();
+  moveSynth.connect(masterGain);
 
   // Phase switch synth + reverb
   phaseSwitchReverb = new Tone.Reverb({ decay:0.3, wet:0.3 });
   await phaseSwitchReverb.generate();
   phaseSwitchSynth = new Tone.Synth({ oscillator:{ type:'triangle' }, envelope:{ attack:0.001, decay:0.08, sustain:0, release:0.22 } });
   phaseSwitchSynth.connect(phaseSwitchReverb);
-  phaseSwitchReverb.toDestination();
+  phaseSwitchReverb.connect(masterGain);
 
   // Death synth
-  deathFilter = new Tone.Filter({ frequency:3200, type:'lowpass' }).toDestination();
+  deathFilter = new Tone.Filter({ frequency:3200, type:'lowpass' }).connect(masterGain);
   deathNoise = new Tone.NoiseSynth({ noise:{ type:'white' }, envelope:{ attack:0.001, decay:0.18, sustain:0, release:0 } });
   deathNoise.connect(deathFilter);
   deathGlideSynth = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:0, decay:0.25, sustain:0, release:0 }, portamento:0.15 });
-  deathGlideSynth.toDestination();
+  deathGlideSynth.connect(masterGain);
 
   // Exit synth
   const exitSynthReverb = new Tone.Reverb({ decay:2.5, wet:0.7 });
   await exitSynthReverb.generate();
   exitSynth = new Tone.PolySynth(Tone.Synth, { oscillator:{ type:'triangle' }, envelope:{ attack:0.01, decay:0.8, sustain:0.1, release:1.2 } });
   exitSynth.connect(exitSynthReverb);
-  exitSynthReverb.toDestination();
+  exitSynthReverb.connect(masterGain);
 
   // Drone for wow moment
   droneSynth = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:0.3, decay:0, sustain:1, release:0.3 } });
-  droneSynth.toDestination();
+  droneSynth.connect(masterGain);
 }
 
 function playMoveSound() {
   if (!audioReady || !moveSynth) return;
   const freq = currentLayer === 0 ? 659.25 : 622.25;
-  try { moveSynth.triggerAttackRelease(freq, '32n', undefined, 0.15); } catch(e) {}
+  try { moveSynth.triggerAttackRelease(freq, '32n', undefined, 0.45); } catch(e) {}
 }
 
 function playPhaseSwitch(unsafe) {
@@ -1067,6 +1082,7 @@ function doPhaseSwitch() {
 }
 
 let flashFrames = 0;
+let wallFlash = null; // { x, y, frames }
 
 // ─── MOVEMENT ─────────────────────────────────────────────────────────────────
 const DIRS_KEY = {
@@ -1087,6 +1103,7 @@ function tryMove(dx, dy) {
   const wallSet = currentLayer === 0 ? LEVELS[currentLevel].wallsA : LEVELS[currentLevel].wallsB;
   if (hasWall(wallSet, nx, ny)) {
     screenShakeFrames = 2; screenShakeAmt = 2;
+    wallFlash = { x: nx, y: ny, frames: 2 };
     return;
   }
   // Start slide move
@@ -1157,13 +1174,13 @@ canvas.addEventListener('pointerdown', e => {
     lastTapTime = 0;
     return;
   }
+  const thisTapTime = now;
   lastTapTime = now;
   lastTapX = px; lastTapY = py;
 
-  // Single tap: pathfind
+  // Single tap: pathfind — only if no second tap arrived
   setTimeout(() => {
-    if (performance.now() - lastTapTime > 290) {
-      // Was single tap
+    if (lastTapTime === thisTapTime) {
       const tile = fromScreen(px, py);
       startPathMove(tile.x, tile.y);
     }
@@ -1332,6 +1349,18 @@ function renderGame() {
     }
   }
 
+  // Wall hit flash
+  if (wallFlash && wallFlash.frames > 0) {
+    const wfs = toScreen(wallFlash.x, wallFlash.y);
+    const wftw = TILE_W*sc, wfth = TILE_H*sc;
+    uiCtx.save();
+    uiCtx.globalAlpha = 0.15;
+    drawIsoDiamond(uiCtx, wfs.sx + wftw/2, wfs.sy + wfth/2, wftw/2, wfth/2, 'none', '#FF0000', 0);
+    uiCtx.restore();
+    wallFlash.frames--;
+    if (wallFlash.frames <= 0) wallFlash = null;
+  }
+
   // Draw walls
   const layersToRender = dualLayerVisible ? [0, 1] : [currentLayer];
   for (const layerIdx of layersToRender) {
@@ -1495,9 +1524,11 @@ function renderGame() {
     if (refractoryTimer > 0) {
       const arcFrac = 1 - (refractoryTimer / 0.5);
       uiCtx.save();
-      uiCtx.globalAlpha = 0.7;
+      uiCtx.globalAlpha = 0.95;
       uiCtx.strokeStyle = lCol;
-      uiCtx.lineWidth = 2;
+      uiCtx.lineWidth = 3;
+      uiCtx.shadowColor = lCol;
+      uiCtx.shadowBlur = 6;
       uiCtx.beginPath();
       uiCtx.arc(rx, ry + 6*sc, 12*sc, -Math.PI/2, -Math.PI/2 + Math.PI*2*arcFrac);
       uiCtx.stroke();
@@ -1509,6 +1540,36 @@ function renderGame() {
     playerBloom.position.set(svp.x, svp.y, 0);
     playerBloom.material.color.setStyle(lCol);
     playerBloom.material.opacity = 0.8;
+  }
+
+  // Layer indicator HUD (bottom-left)
+  if (gameState === 'playing' || gameState === 'levelcomplete') {
+    const indX = 24, indY = H - 24;
+    const indCol = currentLayer === 0 ? '#00E5FF' : '#FF3366';
+    const indLabel = currentLayer === 0 ? 'A' : 'B';
+    const indAlpha = 1 - refractoryTimer / 0.5 * 0.3;
+    uiCtx.save();
+    uiCtx.globalAlpha = Math.max(0.7, indAlpha);
+    uiCtx.shadowColor = indCol;
+    uiCtx.shadowBlur = 8;
+    // Draw 8px diamond
+    uiCtx.fillStyle = indCol;
+    uiCtx.beginPath();
+    uiCtx.moveTo(indX, indY - 8);
+    uiCtx.lineTo(indX + 8, indY);
+    uiCtx.lineTo(indX, indY + 8);
+    uiCtx.lineTo(indX - 8, indY);
+    uiCtx.closePath();
+    uiCtx.fill();
+    // Label
+    uiCtx.shadowBlur = 0;
+    uiCtx.globalAlpha = 0.9;
+    uiCtx.fillStyle = '#FFFFFF';
+    uiCtx.font = 'bold 11px Courier New, monospace';
+    uiCtx.textAlign = 'left';
+    uiCtx.textBaseline = 'middle';
+    uiCtx.fillText(indLabel, indX + 14, indY);
+    uiCtx.restore();
   }
 
   // Phase switch rings
